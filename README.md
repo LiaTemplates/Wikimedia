@@ -1,6 +1,6 @@
 <!--
 author:   André Dietrich
-version:  0.0.1
+version:  0.0.2
 language: en
 narrator: US English Female
 logo:     https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Wikimedia_Brand_Guidelines_Update_2022_-_Wikimedia_Logo_Main.png/960px-Wikimedia_Brand_Guidelines_Update_2022_-_Wikimedia_Logo_Main.png
@@ -39,7 +39,7 @@ window._fetchCommonsData = function(fileTitle, width) {
       origin: "*",
       prop: "imageinfo",
       titles: fileTitle,
-      iiprop: "url|extmetadata",
+      iiprop: "url|extmetadata|mime|mediatype|size",
       iiurlwidth: String(width || window.innerWidth)
     });
 
@@ -58,15 +58,29 @@ window._fetchCommonsData = function(fileTitle, width) {
     const fileName = page.title.replace(/^File:/, "");
     const imageTitle = cleanText(meta.ObjectName?.value) || fileName;
 
+    const mediaType = String(info.mediatype || "").toUpperCase();
+    const mime      = String(info.mime || "").toLowerCase();
+    let kind;
+    if      (mediaType === "AUDIO" || mime.startsWith("audio/"))                               kind = "audio";
+    else if (mediaType === "VIDEO" || mime.startsWith("video/"))                               kind = "video";
+    else if (mediaType === "BITMAP" || mediaType === "DRAWING" || mime.startsWith("image/"))   kind = "image";
+    else if (mediaType === "3D"    || mime.startsWith("model/"))                               kind = "3d";
+    else if (mediaType === "OFFICE" || mime === "application/pdf")                             kind = "document";
+    else                                                                                       kind = "other";
+
     return {
       imageUrl: info.thumburl || info.url,
+      fileUrl:  info.url,
       source:   info.descriptionurl || "",
       title:    imageTitle,
       caption:  cleanText(meta.ImageDescription?.value) || imageTitle,
       artist:   cleanText(meta.Attribution?.value) || cleanText(meta.Artist?.value) || "",
       license:  cleanText(meta.LicenseShortName?.value) || cleanText(meta.UsageTerms?.value) || "",
       licenseUrl: meta.LicenseUrl?.value || "",
-      credit:   cleanText(meta.Credit?.value) || ""
+      credit:   cleanText(meta.Credit?.value) || "",
+      mime,
+      mediaType,
+      kind
     };
   })();
 
@@ -74,7 +88,7 @@ window._fetchCommonsData = function(fileTitle, width) {
   return promise;
 };
 
-window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
+window.getCommonsEmbedMarkdown = async function(fileTitle, options = {}) {
   function escapeMarkdownAlt(value) {
     return (value || "").replace(/\\/g, "\\\\").replace(/\]/g, "\\]").replace(/\n/g, " ");
   }
@@ -96,13 +110,19 @@ window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
     d.source   && `Source: ${d.source}`
   ].filter(Boolean).join(" · ");
 
-  return `![${escapeMarkdownAlt(d.caption)}](${escapeMarkdownUrl(d.imageUrl)} "${escapeMarkdownTitle(titleText)}")`;
+  const alt  = escapeMarkdownAlt(d.caption);
+  const url  = escapeMarkdownUrl(d.kind === "audio" || d.kind === "video" ? d.fileUrl : d.imageUrl);
+  const meta = escapeMarkdownTitle(titleText);
+
+  if (d.kind === "audio") return `?[${alt}](${url} "${meta}")`;
+  if (d.kind === "video") return `!?[${alt}](${url} "${meta}")`;
+  return                         `![${alt}](${url} "${meta}")`;
 };
 @end
 
 
-@Wikimedia.image: <script run-once modify="false">
-  window.getCommonsImageMarkdown("@0")
+@Wikimedia.embed: <script run-once modify="false">
+  window.getCommonsEmbedMarkdown("@0")
     .then(markdown => {
       send.lia("LIASCRIPT: " + markdown);
     })
@@ -142,7 +162,7 @@ window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
 
 @Wikimedia.gallery: <script run-once modify="false">
   Promise.all(
-    "@0".split("|").map(f => window.getCommonsImageMarkdown(f.trim()))
+    "@0".split("|").map(f => window.getCommonsEmbedMarkdown(f.trim()))
   ).then(images => {
     send.lia("LIASCRIPT:\n" + images.join("\n"));
   }).catch(error => {
@@ -181,35 +201,43 @@ There are three ways to import this functionality into your course, we always re
 
 2. Pin a specific release
 
-   `import: https://raw.githubusercontent.com/LiaTemplates/Wikimedia/0.0.1/README.md`
+   `import: https://raw.githubusercontent.com/LiaTemplates/Wikimedia/0.0.2/README.md`
 
 3. Copy the macro definitions from the [Implementation](#implementation) section
    directly into your document header.
 
 
-## `@Wikimedia.image`
+## `@Wikimedia.embed`
 
                           --{{0}}--
-Embeds a single image at the current viewport width with alt text, title,
-artist, license, and source URL baked into the standard Markdown image syntax.
+Embeds a single media file at the current viewport width. The macro
+auto-detects the media type via the Commons API and produces the correct
+LiaScript syntax — `![…](…)` for images, `?[…](…)` for audio, and
+`!?[…](…)` for video. Alt text, title, artist, license, and source URL
+are baked in automatically.
 Pass either a `File:` identifier or a full Wikimedia Commons URL.
 
-`@Wikimedia.image(File:Hoverfly_May_2008-8.jpg)`
+`@Wikimedia.embed(File:Hoverfly_May_2008-8.jpg)`
 
-@Wikimedia.image(File:Hoverfly_May_2008-8.jpg)
+@Wikimedia.embed(File:Hoverfly_May_2008-8.jpg)
 
 ---
 
-`@Wikimedia.image(https://commons.wikimedia.org/wiki/File:Zunftwappen.svg)`
+`@Wikimedia.embed(https://commons.wikimedia.org/wiki/File:Turdus_merula_2.ogg)`
 
-@Wikimedia.image(https://commons.wikimedia.org/wiki/File:Zunftwappen.svg)
+@Wikimedia.embed(https://commons.wikimedia.org/wiki/File:Turdus_merula_2.ogg)
 
+---
+
+`@Wikimedia.embed(https://commons.wikimedia.org/wiki/File:Turning_a_Resource_into_an_Open_Educational_Resource.webm)`
+
+@Wikimedia.embed(https://commons.wikimedia.org/wiki/File:Turning_a_Resource_into_an_Open_Educational_Resource.webm)
 
 ## Metadata Macros
 
                           --{{0}}--
 Each metadata field has its own macro. All macros share the same internal
-cache, so if an image has already been fetched (e.g. by `@Wikimedia.image`),
+cache, so if a file has already been fetched (e.g. by `@Wikimedia.embed`),
 no additional network request is made.
 
 | Macro                | Returns                       |
@@ -261,9 +289,9 @@ Embeds multiple images as a LiaScript gallery. Pass a `|`-separated list of
 file identifiers or URLs. All fetches run in parallel; each unique file is
 still only requested once.
 
-`@Wikimedia.gallery(File:Hoverfly_May_2008-8.jpg|File:Zunftwappen.svg|Datei:Global_Open_Educational_Resources_Logo.svg)`
+`@Wikimedia.gallery(File:Turdus_merula_2.ogg|File:Turning_a_Resource_into_an_Open_Educational_Resource.webm|Datei:Global_Open_Educational_Resources_Logo.svg)`
 
-@Wikimedia.gallery(File:Hoverfly_May_2008-8.jpg|File:Zunftwappen.svg|Datei:Global_Open_Educational_Resources_Logo.svg)
+@Wikimedia.gallery(File:Turdus_merula_2.ogg|File:Turning_a_Resource_into_an_Open_Educational_Resource.webm|Datei:Global_Open_Educational_Resources_Logo.svg)
 
 
 ## Implementation
@@ -304,7 +332,7 @@ window._fetchCommonsData = function(fileTitle, width) {
       origin: "*",
       prop: "imageinfo",
       titles: fileTitle,
-      iiprop: "url|extmetadata",
+      iiprop: "url|extmetadata|mime|mediatype|size",
       iiurlwidth: String(width || window.innerWidth)
     });
 
@@ -323,15 +351,29 @@ window._fetchCommonsData = function(fileTitle, width) {
     const fileName = page.title.replace(/^File:/, "");
     const imageTitle = cleanText(meta.ObjectName?.value) || fileName;
 
+    const mediaType = String(info.mediatype || "").toUpperCase();
+    const mime      = String(info.mime || "").toLowerCase();
+    let kind;
+    if      (mediaType === "AUDIO" || mime.startsWith("audio/"))                               kind = "audio";
+    else if (mediaType === "VIDEO" || mime.startsWith("video/"))                               kind = "video";
+    else if (mediaType === "BITMAP" || mediaType === "DRAWING" || mime.startsWith("image/"))   kind = "image";
+    else if (mediaType === "3D"    || mime.startsWith("model/"))                               kind = "3d";
+    else if (mediaType === "OFFICE" || mime === "application/pdf")                             kind = "document";
+    else                                                                                       kind = "other";
+
     return {
       imageUrl: info.thumburl || info.url,
+      fileUrl:  info.url,
       source:   info.descriptionurl || "",
       title:    imageTitle,
       caption:  cleanText(meta.ImageDescription?.value) || imageTitle,
       artist:   cleanText(meta.Attribution?.value) || cleanText(meta.Artist?.value) || "",
       license:  cleanText(meta.LicenseShortName?.value) || cleanText(meta.UsageTerms?.value) || "",
       licenseUrl: meta.LicenseUrl?.value || "",
-      credit:   cleanText(meta.Credit?.value) || ""
+      credit:   cleanText(meta.Credit?.value) || "",
+      mime,
+      mediaType,
+      kind
     };
   })();
 
@@ -339,7 +381,7 @@ window._fetchCommonsData = function(fileTitle, width) {
   return promise;
 };
 
-window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
+window.getCommonsEmbedMarkdown = async function(fileTitle, options = {}) {
   function escapeMarkdownAlt(value) {
     return (value || "").replace(/\\/g, "\\\\").replace(/\]/g, "\\]").replace(/\n/g, " ");
   }
@@ -361,13 +403,19 @@ window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
     d.source   && `Source: ${d.source}`
   ].filter(Boolean).join(" · ");
 
-  return `![${escapeMarkdownAlt(d.caption)}](${escapeMarkdownUrl(d.imageUrl)} "${escapeMarkdownTitle(titleText)}")`;
+  const alt  = escapeMarkdownAlt(d.caption);
+  const url  = escapeMarkdownUrl(d.kind === "audio" || d.kind === "video" ? d.fileUrl : d.imageUrl);
+  const meta = escapeMarkdownTitle(titleText);
+
+  if (d.kind === "audio") return `?[${alt}](${url} "${meta}")`;
+  if (d.kind === "video") return `!?[${alt}](${url} "${meta}")`;
+  return                         `![${alt}](${url} "${meta}")`;
 };
 @end
 
 
-@Wikimedia.image: <script run-once modify="false">
-  window.getCommonsImageMarkdown("@0")
+@Wikimedia.embed: <script run-once modify="false">
+  window.getCommonsEmbedMarkdown("@0")
     .then(markdown => {
       send.lia("LIASCRIPT: " + markdown);
     })
@@ -407,7 +455,7 @@ window.getCommonsImageMarkdown = async function(fileTitle, options = {}) {
 
 @Wikimedia.gallery: <script run-once modify="false">
   Promise.all(
-    "@0".split("|").map(f => window.getCommonsImageMarkdown(f.trim()))
+    "@0".split("|").map(f => window.getCommonsEmbedMarkdown(f.trim()))
   ).then(images => {
     send.lia("LIASCRIPT:\n" + images.join("\n"));
   }).catch(error => {
